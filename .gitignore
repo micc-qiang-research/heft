@@ -117,3 +117,5 @@ dmypy.json
 # Except for the test cases used by pytest
 !canonicalgraph*.csv
 !randomgraph*.csv
+
+my-test-code/

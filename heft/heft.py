@@ -15,6 +15,7 @@ import networkx as nx
 
 logger = logging.getLogger('heft')
 
+# 定义一个名为'ScheduleEvent'的nametuple，属性有task、start、end、proc
 ScheduleEvent = namedtuple('ScheduleEvent', 'task start end proc')
 
 """
@@ -62,7 +63,7 @@ class OpMode(Enum):
     EDP_REL = "EDP RELATIVE"
     EDP_ABS = "EDP ABSOLUTE"
     ENERGY = "ENERGY"
-
+# 核心代码
 def schedule_dag(dag, computation_matrix=W0, communication_matrix=C0, communication_startup=L0, proc_schedules=None, time_offset=0, relabel_nodes=True, rank_metric=RankMetric.MEAN, **kwargs):
     """
     Given an application DAG and a set of matrices specifying PE bandwidth and (task, pe) execution times, computes the HEFT schedule
@@ -91,7 +92,7 @@ def schedule_dag(dag, computation_matrix=W0, communication_matrix=C0, communicat
     else:
         #Negates any offsets that would have been needed had the jobs been relabeled
         _self.numExistingJobs = 0
-
+    # 初始化
     for i in range(_self.numExistingJobs + len(_self.computation_matrix)):
         _self.task_schedules[i] = None
     for i in range(len(_self.communication_matrix)):
@@ -112,17 +113,20 @@ def schedule_dag(dag, computation_matrix=W0, communication_matrix=C0, communicat
     _compute_ranku(_self, dag, metric=rank_metric, **kwargs)
 
     logger.debug(""); logger.debug("====================== Computing EFT for each (task, processor) pair and scheduling in order of decreasing Rank-U ======================"); logger.debug("")
-    sorted_nodes = sorted(dag.nodes(), key=lambda node: dag.nodes()[node]['ranku'], reverse=True)
+    sorted_nodes = sorted(dag.nodes(), key=lambda node: dag.nodes()[node]['ranku'], reverse=True) # 思考：为什么root node放在第一个
     if sorted_nodes[0] != root_node:
         logger.debug("Root node was not the first node in the sorted list. Must be a zero-cost and zero-weight placeholder node. Rearranging it so it is scheduled first\n")
         idx = sorted_nodes.index(root_node)
         sorted_nodes[idx], sorted_nodes[0] = sorted_nodes[0], sorted_nodes[idx]
+
+    # 对每一个任务，开始分发node节点
     for node in sorted_nodes:
         if _self.task_schedules[node] is not None:
             continue
+        # task start end proc
         minTaskSchedule = ScheduleEvent(node, inf, inf, -1)
         minEDP = inf
-        op_mode = kwargs.get("op_mode", OpMode.EFT)
+        op_mode = kwargs.get("op_mode", OpMode.EFT) # 找earliest finish time
         if op_mode == OpMode.EDP_ABS:
             assert "power_dict" in kwargs, "In order to perform EDP-based processor assignment, a power_dict is required"
             taskschedules = []
@@ -169,6 +173,8 @@ def schedule_dag(dag, computation_matrix=W0, communication_matrix=C0, communicat
         _self.task_schedules[node] = minTaskSchedule
         _self.proc_schedules[minTaskSchedule.proc].append(minTaskSchedule)
         _self.proc_schedules[minTaskSchedule.proc] = sorted(_self.proc_schedules[minTaskSchedule.proc], key=lambda schedule_event: (schedule_event.end, schedule_event.start))
+
+        # for debug: 打印当前的job和proc对应情况
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug('\n')
             for proc, jobs in _self.proc_schedules.items():
@@ -199,7 +205,7 @@ def _scale_by_operating_freq(_self, **kwargs):
     return #TODO
     #for pe_num, freq in enumerate(kwargs["operating_freqs"]):
         #_self.computation_matrix[:, pe_num] = _self.computation_matrix[:, pe_num] * (1 + compute_DVFS_performance_slowdown(pe_num, freq))
-
+# upward rank
 def _compute_ranku(_self, dag, metric=RankMetric.MEAN, **kwargs):
     """
     Uses a basic BFS approach to traverse upwards through the graph assigning ranku along the way
@@ -219,7 +225,7 @@ def _compute_ranku(_self, dag, metric=RankMetric.MEAN, **kwargs):
 
     # Utilize a masked array so that np.mean, etc, calculations ignore the entries that are inf
     comp_matrix_masked = np.ma.masked_where(_self.computation_matrix == inf, _self.computation_matrix)
-
+    # 终止节点的ranku值：对于终止任务，ranku即平均完成时间
     nx.set_node_attributes(dag, { terminal_node: np.mean(comp_matrix_masked[terminal_node-_self.numExistingJobs]) }, "ranku")
     visit_queue = deque(dag.predecessors(terminal_node))
 
@@ -313,7 +319,7 @@ def _node_can_be_processed(_self, dag, node):
             logger.debug(f"Attempted to compute the Rank U for node {node} but found that it has an unprocessed successor {dag.nodes()[succnode]}. Will try with the next node in the queue")
             return False
     return True
-
+# 计算EFT，earliest finish time
 def _compute_eft(_self, dag, node, proc):
     """
     Computes the EFT of a particular node if it were scheduled on a particular processor
@@ -410,7 +416,9 @@ def readDagMatrix(dag_file, show_dag=False):
     )
 
     if show_dag:
+        edge_labels = nx.get_edge_attributes(dag,'weight')
         nx.draw(dag, pos=nx.nx_pydot.graphviz_layout(dag, prog='dot'), with_labels=True)
+        nx.draw_networkx_edge_labels(dag, pos=nx.nx_pydot.graphviz_layout(dag, prog='dot'), edge_labels=edge_labels)
         plt.show()
 
     return dag
@@ -450,7 +458,7 @@ if __name__ == "__main__":
     consolehandler.setFormatter(logging.Formatter("%(levelname)8s : %(name)16s : %(message)s"))
     logger.addHandler(consolehandler)
 
-    communication_matrix = readCsvToNumpyMatrix(args.pe_connectivity_file)
+    communication_matrix = readCsvToNumpyMatrix(args.pe_connectivity_file) # 通信代价
     computation_matrix = readCsvToNumpyMatrix(args.task_execution_file)
     dag = readDagMatrix(args.dag_file, args.showDAG) 
     
